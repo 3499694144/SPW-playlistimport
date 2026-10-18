@@ -1,0 +1,17 @@
+{
+  "configs": [
+    {
+      "title": "歌单导入",
+      "config": "config.json",
+      "preferences": [
+        {
+          "type": "button",
+          "title": "选择歌单文件",
+          "summary": "匹配SPW曲库并创建新歌单",
+          "arrow_type": "arrow",
+          "on_click": "local.saltplaylist.MainPlugin.openImporter"
+        }
+      ]
+    }
+  ]
+}

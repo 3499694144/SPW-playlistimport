@@ -1,0 +1,65 @@
+import com.xuncorp.spw.workshop.gradle.PluginPermission
+
+plugins {
+    id 'java-library'
+    id 'org.jetbrains.kotlin.jvm' version '2.4.20'
+    id 'org.jetbrains.kotlin.plugin.compose' version '2.4.20'
+    id 'com.xuncorp.spw.workshop' version '0.1.0-dev22'
+}
+
+group = 'local.saltplaylist'
+version = '1.0.0'
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(25) }
+}
+
+dependencies {
+    // Host UI/Compose are compile-only. No host bytecode or runtime library is distributed.
+    def hostJar = providers.gradleProperty('hostJar').orNull
+    if (hostJar == null || !file(hostJar).isFile()) {
+        throw new GradleException('Pass -PhostJar=<SPW installation>/app/ffmpeg-x64.dll')
+    }
+    compileOnly files(hostJar)
+    compileOnly('com.github.Moriafly.spw-workshop-api:spw-workshop-api:0.1.0-dev22') {
+        transitive = false
+    }
+    compileOnly 'org.pf4j:pf4j:3.12.0'
+    compileOnly 'org.jetbrains.kotlin:kotlin-stdlib:2.4.20'
+    compileOnly 'org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0'
+
+    testImplementation 'junit:junit:4.13.2'
+}
+
+kotlin {
+    jvmToolchain(25)
+    compilerOptions { jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_25 }
+}
+
+configurations.testImplementation.extendsFrom(configurations.compileOnly)
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnit()
+    systemProperty 'java.awt.headless', 'true'
+}
+
+spmod { config ->
+    config.PluginClass = 'local.saltplaylist.MainPlugin'
+    config.PluginId = 'spw.playlistimport'
+    config.PluginVersion = project.version.toString()
+    config.PluginProvider = 'Local'
+    config.PluginName = '歌单导入'
+    config.PluginDescription = '导入椒盐音乐移动端歌单到SPW'
+    config.PluginOpenSourceUrl = 'https://github.com/aikavvak12una/SPW-playlistimport'
+    config.PluginHasConfig = true
+    config.PluginPermissions = [PluginPermission.LIBRARY_READ, PluginPermission.CLASS_TRANSFORM]
+}
+
+tasks.named('jar') {
+    from('LICENSE') { into 'META-INF' }
+}
