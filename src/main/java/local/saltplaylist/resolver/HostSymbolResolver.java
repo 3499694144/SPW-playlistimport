@@ -16,8 +16,9 @@ import java.util.function.Consumer;
 
 /** Coordinates fingerprinting, cache recovery and diagnostics; feature rules live in separate files. */
 public final class HostSymbolResolver {
-    public static final String SUPPORTED_HOST = "1.19.0";
-    private static final String RULE_VERSION = "8";
+    /** Last build this symbol rule set was verified against; newer builds are resolved semantically. */
+    public static final String TESTED_HOST = "1.19.2";
+    private static final String RULE_VERSION = "9";
     private final String pluginVersion;
     private HostSymbols.Resolved resolved;
 
@@ -74,7 +75,7 @@ public final class HostSymbolResolver {
                 Path temporary = dataDirectory.resolve("host-symbols-" + UUID.randomUUID() + ".tmp");
                 try {
                     try (var writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
-                        properties.store(writer, "Resolved for SPW " + SUPPORTED_HOST);
+                        properties.store(writer, "Resolved for SPW " + TESTED_HOST);
                     }
                     move(temporary, cache);
                 } finally {

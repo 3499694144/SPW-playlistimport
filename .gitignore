@@ -3,3 +3,5 @@
 build/
 .reference/
 *.log
+library.tsv
+selection.tsv

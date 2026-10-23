@@ -26,7 +26,7 @@ import java.util.function.Consumer
 
 /** Drawn by the official UI hook, with the host's current theme and composition locals. */
 class ImportDialog(
-    initialTitle: String,
+    playlistName: String,
     matches: List<PlaylistMatcher.Match>,
     library: List<PlaylistMatcher.Song>,
     symbols: ImportUiSymbols.Resolved,
@@ -35,13 +35,14 @@ class ImportDialog(
     private val onImport: BiConsumer<String, PlaylistMatcher.Selection>,
     private val onCancel: Runnable
 ) {
+    /** The playlist is named after the TXT file; it is shown, not edited. */
+    private val title = playlistName.trim().ifBlank { UiText.DEFAULT_TITLE }
     private val original = matches.toMutableList()
     private val libraryByPath = library.groupBy { PlaylistMatcher.pathKey(it.path()) }
     private val ui = NativeUi(symbols)
     private val listState = LazyListState()
     private var rows by mutableStateOf(PlaylistMatcher.previewOrder(original))
     private var selection by mutableStateOf(PlaylistMatcher.selection(original))
-    private var title by mutableStateOf(initialTitle)
     private var visible by mutableStateOf(true)
     private var busy by mutableStateOf(false)
     private var confirming by mutableStateOf(false)
@@ -62,23 +63,24 @@ class ImportDialog(
         }
         val confirm = Runnable {
             if (!busy) {
-                val name = title.trim()
                 when {
-                    name.isEmpty() -> message = UiText.TITLE_REQUIRED
+                    title.isEmpty() -> message = UiText.TITLE_REQUIRED
                     selection.songs().isEmpty() -> message = UiText.NO_MATCHES
                     !confirming -> { message = null; confirming = true }
-                    else -> { busy = true; onImport.accept(name, selection) }
+                    else -> { busy = true; onImport.accept(title, selection) }
                 }
             }
         }
         val content: @Composable ColumnScope.() -> Unit = {
             Column(Modifier.fillMaxWidth()) {
                 if (confirming) {
-                    Text(UiText.CONFIRM.format(title.trim(), selection.songs().size, selection.unresolved(), selection.duplicates()), 5)
+                    Text(UiText.CONFIRM.format(title, selection.songs().size, selection.unresolved(), selection.duplicates()), 5)
                     if (busy) Text(UiText.IMPORTING, 2)
                 } else {
-                    Editor()
-                    Text(UiText.SUMMARY.format(original.size, selection.songs().size, selection.unresolved(), selection.duplicates()), 2)
+                    Text(UiText.PLAYLIST_NAME.format(title), 2)
+                    Text(UiText.SUMMARY.format(original.size, selection.songs().size, selection.unresolved(), selection.duplicates()), 3)
+                    val review = PlaylistMatcher.reviewCount(original)
+                    if (review > 0) Text(UiText.REVIEW_HINT.format(review), 3)
                     if (rows.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
                         TrackList()
@@ -94,11 +96,6 @@ class ImportDialog(
             content, currentComposer)
     }
 
-    @Composable private fun Editor() {
-        ui.edit(title, { if (!busy) title = it }, UiText.TITLE_LABEL,
-            Modifier.fillMaxWidth(), busy, currentComposer)
-    }
-
     @Composable private fun Text(value: String, lines: Int = 1) {
         ui.text(value, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), lines, currentComposer)
     }
@@ -107,11 +104,11 @@ class ImportDialog(
         val content: LazyListScope.() -> Unit = {
             items(rows.size, key = { index -> rows[index].entry().line() }) { index ->
                 val row = rows[index]
-                ui.item({ chooseFile(row) }, row.entry().fileName(), UiText.status(row.status()), UiText.MANUAL,
+                ui.item({ chooseFile(row) }, row.entry().display(), UiText.status(row.status(), row.note()), UiText.MANUAL,
                     Modifier.fillMaxWidth(), !busy, currentComposer)
             }
         }
-        ui.list(Modifier.fillMaxWidth().heightIn(max = 240.dp), listState, !busy, content, currentComposer)
+        ui.list(Modifier.fillMaxWidth().heightIn(max = 260.dp), listState, !busy, content, currentComposer)
     }
 
     private fun chooseFile(match: PlaylistMatcher.Match) {
@@ -135,6 +132,7 @@ class ImportDialog(
 
     private fun replace(match: PlaylistMatcher.Match) {
         val index = original.indexOfFirst { it.entry().line() == match.entry().line() }
+        if (index < 0) return
         original[index] = match
         rows = PlaylistMatcher.previewOrder(original)
         selection = PlaylistMatcher.selection(original)

@@ -7,7 +7,7 @@
         {
           "type": "button",
           "title": "选择歌单文件",
-          "summary": "匹配SPW曲库并创建新歌单",
+          "summary": "读取“歌名 - 歌手”文本，匹配曲库并创建歌单",
           "arrow_type": "arrow",
           "on_click": "local.saltplaylist.MainPlugin.openImporter"
         }

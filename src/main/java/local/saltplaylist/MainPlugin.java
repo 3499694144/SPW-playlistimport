@@ -30,6 +30,8 @@ import java.util.function.Consumer;
 /** Official configuration button entry. Resolution, UI hooks and database access start on demand. */
 public final class MainPlugin extends SpwPlugin {
     private static final AtomicReference<MainPlugin> ACTIVE = new AtomicReference<>();
+    private static final java.util.concurrent.atomic.AtomicBoolean warnedVersion =
+            new java.util.concurrent.atomic.AtomicBoolean();
     private volatile boolean enabled;
     private volatile Session session;
     private HostSymbolResolver resolver;
@@ -86,8 +88,12 @@ public final class MainPlugin extends SpwPlugin {
 
     private void checkAllowed() {
         if (!enabled || ACTIVE.get() != this) throw new CancellationException(UiText.DISABLED);
-        if (!HostSymbolResolver.SUPPORTED_HOST.equals(getPluginContext().getSpwVersion())) {
-            throw new IllegalStateException(UiText.SUPPORTED_VERSION.formatted(HostSymbolResolver.SUPPORTED_HOST));
+        String host = getPluginContext().getSpwVersion();
+        if (!HostSymbolResolver.TESTED_HOST.equals(host) && warnedVersion.compareAndSet(false, true)) {
+            // The resolver validates every host symbol at runtime, so newer builds are attempted
+            // instead of being rejected by a hard version gate.
+            log("Untested host " + host + " (verified with " + HostSymbolResolver.TESTED_HOST
+                    + "); relying on semantic symbol resolution");
         }
         var manager = WorkshopApi.manager();
         if (!manager.isPermissionGranted(PluginPermission.LIBRARY_READ)
@@ -155,7 +161,8 @@ public final class MainPlugin extends SpwPlugin {
                 if (database == null) throw new IllegalStateException(UiText.CAPTURE_FAILED);
                 status("HookPoint[DatabaseCapture] state=FOUND runtime=captured");
                 List<PlaylistMatcher.Song> library = items.stream().map(item ->
-                        new PlaylistMatcher.Song(item.getId(), item.getPath(), item.getReadable())).toList();
+                        new PlaylistMatcher.Song(item.getId(), item.getPath(), item.getReadable(),
+                                item.getTitle(), item.getArtist())).toList();
                 return new Preview(library, PlaylistMatcher.match(entries, library));
             } finally {
                 synchronized (this) {

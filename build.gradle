@@ -8,7 +8,7 @@ plugins {
 }
 
 group = 'local.saltplaylist'
-version = '1.0.0'
+version = '2.0.0'
 
 java {
     toolchain { languageVersion = JavaLanguageVersion.of(25) }
@@ -54,7 +54,7 @@ spmod { config ->
     config.PluginVersion = project.version.toString()
     config.PluginProvider = 'Local'
     config.PluginName = '歌单导入'
-    config.PluginDescription = '导入椒盐音乐移动端歌单到SPW'
+    config.PluginDescription = '导入“歌名 - 歌手”文本歌单到SPW，歌单名取自文件名'
     config.PluginOpenSourceUrl = 'https://github.com/aikavvak12una/SPW-playlistimport'
     config.PluginHasConfig = true
     config.PluginPermissions = [PluginPermission.LIBRARY_READ, PluginPermission.CLASS_TRANSFORM]

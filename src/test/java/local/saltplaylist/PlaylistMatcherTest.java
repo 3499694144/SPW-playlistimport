@@ -8,107 +8,125 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 public class PlaylistMatcherTest {
-    @Test public void acceptsAndroidBomAndWindowsLineEndingsWithoutChangingNames() throws Exception {
-        var entries = PlaylistMatcher.parse("\uFEFF/storage/emulated/0/Music/花 - a # b%.flac\r\n\r\n/storage/emulated/0/Music/Next.mp3\r\n");
-        assertEquals(2, entries.size());
-        assertEquals("花 - a # b%.flac", entries.get(0).fileName());
-        assertEquals(3, entries.get(1).line());
+    @Test public void parsesTitleArtistWithHeaderAndLegacyPaths() throws Exception {
+        var entries = PlaylistMatcher.parse("\uFEFF网易歌单\n慢热 - 满舒克\nAngel\t尹美莱 / Tiger JK\n标题 | 歌手\n只有歌名\n"
+                + "/storage/emulated/0/Music/花 - a.flac\n");
+        assertEquals(5, entries.size());
+        assertEquals("慢热", entries.get(0).title());
+        assertEquals("满舒克", entries.get(0).artist());
+        assertEquals("Angel", entries.get(1).title());
+        assertEquals("尹美莱 / Tiger JK", entries.get(1).artist());
+        assertEquals("标题", entries.get(2).title());
+        assertEquals("歌手", entries.get(2).artist());
+        assertEquals("只有歌名", entries.get(3).title());
+        assertTrue(entries.get(3).artist().isEmpty());
+        assertTrue(entries.get(4).pathEntry());
+        assertEquals("花 - a.flac", entries.get(4).fileName());
     }
 
-    @Test public void preservesOriginalOrderAcrossDifferentFolders() throws Exception {
-        var entries = PlaylistMatcher.parse("/android/old/B.flac\n/android/other/A.flac");
-        var a = song("a", "C:\\Music\\A.flac");
-        var b = song("b", "C:\\Music\\B.flac");
-        var matches = PlaylistMatcher.match(entries, List.of(a, b), ignored -> true);
-        assertEquals(List.of(b, a), PlaylistMatcher.selection(matches).songs());
+    @Test public void skipsOnlyTheLeadingPlaylistHeader() throws Exception {
+        var entries = PlaylistMatcher.parse("我的歌单\nA - B\n网易歌单\nC - D");
+        assertEquals(3, entries.size());
+        assertEquals("A", entries.get(0).title());
+        assertEquals("网易歌单", entries.get(1).title());
     }
 
-    @Test public void ambiguousNameNeverChoosesFirstEvenIfOtherFileIsUnavailable() throws Exception {
-        var first = song("a", "C:\\Music\\same.flac");
-        var second = song("b", "D:\\Music\\same.flac");
-        var match = PlaylistMatcher.match(PlaylistMatcher.parse("/android/same.flac"),
-                List.of(first, second), candidate -> candidate == first).getFirst();
+    @Test public void acceptsDashAndPipeSeparators() throws Exception {
+        var entries = PlaylistMatcher.parse("晴天 – 周杰伦\n稻香 — 周杰伦\n七里香 | 周杰伦");
+        assertEquals(3, entries.size());
+        assertEquals("晴天", entries.get(0).title());
+        assertEquals("周杰伦", entries.get(0).artist());
+        assertEquals("稻香", entries.get(1).title());
+        assertEquals("七里香", entries.get(2).title());
+    }
+
+    @Test public void exactTitleAndArtistMatchesDirectly() throws Exception {
+        var song = song("1", "C:/a.flac", "慢热", "满舒克");
+        var match = matchOne("慢热 - 满舒克", List.of(song));
+        assertEquals(PlaylistMatcher.Status.MATCHED, match.status());
+        assertEquals(song, match.selected());
+    }
+
+    @Test public void versionBracketsMatchButAskForReview() throws Exception {
+        var song = song("1", "C:/a.flac", "Stronger (What Doesn't Kill You)", "Kelly Clarkson");
+        var match = matchOne("Stronger - Kelly Clarkson", List.of(song));
+        assertEquals(PlaylistMatcher.Status.REVIEW, match.status());
+        assertEquals(song, match.selected());
+        assertEquals(List.of(match), PlaylistMatcher.previewOrder(List.of(match)));
+    }
+
+    @Test public void sameTitleWithDifferentArtistIsNeverGuessed() throws Exception {
+        var song = song("1", "C:/a.flac", "谁", "蔡健雅");
+        var match = matchOne("谁 (Live版) - 廖俊涛", List.of(song));
         assertEquals(PlaylistMatcher.Status.AMBIGUOUS, match.status());
         assertNull(match.selected());
+        assertEquals(PlaylistMatcher.Status.MANUAL, match.choose(song).status());
     }
 
-    @Test public void doesNotGuessRenamedPunctuationOrDifferentExtension() throws Exception {
-        var entries = PlaylistMatcher.parse("/android/en;Dolphin.flac\n/android/track.mp3");
-        var matches = PlaylistMatcher.match(entries, List.of(song("a", "C:/en_Dolphin.flac"),
-                song("b", "C:/track.flac")), ignored -> true);
-        assertTrue(matches.stream().allMatch(match -> match.status() == PlaylistMatcher.Status.MISSING));
+    @Test public void titleOnlyLineUsesUniqueTitle() throws Exception {
+        var song = song("1", "C:/a.flac", "晴天", "周杰伦");
+        var match = matchOne("晴天", List.of(song));
+        assertEquals(PlaylistMatcher.Status.MATCHED, match.status());
+        assertEquals(song, match.selected());
     }
 
-    @Test public void duplicateTracksAreExplicitlyCountedAndFirstPositionWins() throws Exception {
-        var entries = PlaylistMatcher.parse("/one/a.mp3\n/two/a.mp3\n/one/b.mp3");
-        var a = song("a", "C:/a.mp3");
-        var b = song("b", "C:/b.mp3");
-        var selected = PlaylistMatcher.selection(PlaylistMatcher.match(entries, List.of(a, b), ignored -> true));
+    @Test public void legacyFileNameMatchingStillWorks() throws Exception {
+        var first = song("1", "C:/Music/same.flac", "A", "B");
+        var second = song("2", "D:/Music/same.flac", "C", "D");
+        var ambiguous = PlaylistMatcher.match(PlaylistMatcher.parse("/android/same.flac"),
+                List.of(first, second), ignored -> true).getFirst();
+        assertEquals(PlaylistMatcher.Status.AMBIGUOUS, ambiguous.status());
+        assertNull(ambiguous.selected());
+
+        var matched = PlaylistMatcher.match(PlaylistMatcher.parse("/android/same.flac"),
+                List.of(first), ignored -> true).getFirst();
+        assertEquals(PlaylistMatcher.Status.MATCHED, matched.status());
+    }
+
+    @Test public void unavailableFileIsNotSelected() throws Exception {
+        var song = song("1", "C:/a.flac", "慢热", "满舒克");
+        var match = PlaylistMatcher.match(PlaylistMatcher.parse("慢热 - 满舒克"), List.of(song),
+                ignored -> false).getFirst();
+        assertEquals(PlaylistMatcher.Status.UNAVAILABLE, match.status());
+        assertNull(match.selected());
+        assertEquals(1, PlaylistMatcher.selection(List.of(match)).unresolved());
+    }
+
+    @Test public void duplicateTracksAreCountedAndFirstPositionWins() throws Exception {
+        var a = song("a", "C:/a.flac", "A", "X");
+        var b = song("b", "C:/b.flac", "B", "Y");
+        var matches = PlaylistMatcher.match(PlaylistMatcher.parse("A - X\nA - X\nB - Y"), List.of(a, b),
+                ignored -> true);
+        var selected = PlaylistMatcher.selection(matches);
         assertEquals(List.of(a, b), selected.songs());
         assertEquals(1, selected.duplicates());
         assertEquals(0, selected.unresolved());
     }
 
-    @Test public void inaccessibleFilesAreNotSelectedAndManualChoiceIsExplicit() throws Exception {
-        var entry = PlaylistMatcher.parse("/android/a.mp3");
-        var song = song("a", "C:/a.mp3");
-        var match = PlaylistMatcher.match(entry, List.of(song), ignored -> false).getFirst();
-        assertEquals(PlaylistMatcher.Status.UNAVAILABLE, match.status());
-        assertNull(match.selected());
-        assertEquals(PlaylistMatcher.Status.MANUAL, match.choose(song).status());
-        assertEquals(1, PlaylistMatcher.selection(List.of(match)).unresolved());
+    @Test public void previewShowsOnlyAttentionRowsAndManualChoiceClearsThem() throws Exception {
+        var a = song("a", "C:/a.flac", "A", "X");
+        var b = song("b", "C:/b.flac", "B", "Y");
+        var matches = PlaylistMatcher.match(PlaylistMatcher.parse("A - X\nmissing - nobody\nB - Z"),
+                List.of(a, b), ignored -> true);
+        var preview = PlaylistMatcher.previewOrder(matches);
+        assertEquals(List.of(2, 3), preview.stream().map(match -> match.entry().line()).toList());
+        matches.set(2, matches.get(2).choose(b));
+        assertEquals(List.of(2), PlaylistMatcher.previewOrder(matches).stream()
+                .map(match -> match.entry().line()).toList());
+        assertEquals(List.of(a, b), PlaylistMatcher.selection(matches).songs());
     }
 
-    @Test public void usesWindowsCaseInsensitivityButPreservesUnicode() throws Exception {
-        var song = song("a", "C:/音乐/花 - TRACK.FLAC");
-        var result = PlaylistMatcher.match(PlaylistMatcher.parse("/android/花 - track.flac"), List.of(song), ignored -> true);
-        assertEquals(song, result.getFirst().selected());
-    }
-
-    @Test public void rejectsInvalidOrEmptyInput() {
-        for (String input : List.of("", "\n  \n", "relative.mp3", "/folder/", "/a\0b.mp3")) {
+    @Test public void rejectsUnreadableOrEmptyInput() {
+        for (String input : List.of("", "\n  \n", "\0bad")) {
             assertThrows(IOException.class, () -> PlaylistMatcher.parse(input));
         }
     }
 
-    @Test public void previewShowsOnlyUnresolvedWithoutChangingImportOrder() throws Exception {
-        var a = song("a", "C:/a.mp3");
-        var b = song("b", "C:/b.mp3");
-        var original = PlaylistMatcher.match(PlaylistMatcher.parse("/a.mp3\n/missing.mp3\n/b.mp3\n/also-missing.mp3"),
-                List.of(a, b), ignored -> true);
-        var preview = PlaylistMatcher.previewOrder(original);
-        assertEquals(List.of(2, 4), preview.stream().map(match -> match.entry().line()).toList());
-        assertEquals(List.of(1, 2, 3, 4), original.stream().map(match -> match.entry().line()).toList());
-        assertEquals(List.of(a, b), PlaylistMatcher.selection(original).songs());
+    private static PlaylistMatcher.Match matchOne(String text, List<PlaylistMatcher.Song> library) throws Exception {
+        return PlaylistMatcher.match(PlaylistMatcher.parse(text), library, ignored -> true).getFirst();
     }
 
-    @Test public void manualMatchLeavesPreviewButKeepsItsOriginalImportPosition() throws Exception {
-        var a = song("a", "C:/a.mp3");
-        var b = song("b", "C:/b.mp3");
-        var original = PlaylistMatcher.match(PlaylistMatcher.parse("/renamed.mp3\n/a.mp3\n/missing.mp3\n/other.mp3"),
-                List.of(a), ignored -> true);
-        original.set(0, original.get(0).choose(b));
-        var preview = PlaylistMatcher.previewOrder(original);
-        assertEquals(List.of(3, 4), preview.stream().map(match -> match.entry().line()).toList());
-        assertEquals(List.of(b, a), PlaylistMatcher.selection(original).songs());
-        assertEquals(2, PlaylistMatcher.selection(original).unresolved());
+    private static PlaylistMatcher.Song song(String id, String path, String title, String artist) {
+        return new PlaylistMatcher.Song(id, path, true, title, artist);
     }
-
-    @Test public void previewIncludesMissingAmbiguousAndUnreadableAndCanBecomeEmpty() throws Exception {
-        var a = song("a", "C:/a.mp3");
-        var first = song("first", "C:/same.mp3");
-        var second = song("second", "D:/same.mp3");
-        var unreadable = song("unreadable", "C:/unreadable.mp3");
-        var original = PlaylistMatcher.match(PlaylistMatcher.parse("/a.mp3\n/missing.mp3\n/same.mp3\n/unreadable.mp3"),
-                List.of(a, first, second, unreadable), candidate -> candidate != unreadable);
-        assertEquals(List.of(PlaylistMatcher.Status.MISSING, PlaylistMatcher.Status.AMBIGUOUS, PlaylistMatcher.Status.UNAVAILABLE),
-                PlaylistMatcher.previewOrder(original).stream().map(PlaylistMatcher.Match::status).toList());
-        assertEquals(List.of(a), PlaylistMatcher.selection(original).songs());
-        assertEquals(3, PlaylistMatcher.selection(original).unresolved());
-        for (int i = 1; i < original.size(); i++) original.set(i, original.get(i).choose(song("fixed" + i, "C:/fixed" + i + ".mp3")));
-        assertTrue(PlaylistMatcher.previewOrder(original).isEmpty());
-        assertEquals(4, PlaylistMatcher.selection(original).songs().size());
-    }
-
-    private static PlaylistMatcher.Song song(String id, String path) { return new PlaylistMatcher.Song(id, path, true); }
 }
